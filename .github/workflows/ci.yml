@@ -1,0 +1,45 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: dataops
+          POSTGRES_PASSWORD: dataops
+          POSTGRES_DB: dataops
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U dataops" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://dataops:dataops@localhost:5432/dataops
+      INGEST_API_KEY: ci-key
+      LLM_PROVIDER: fake
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: Lint
+        run: ruff check app tests
+      - name: SAST (bandit)
+        run: bandit -q -r app -lll
+      - name: Tests + coverage gate
+        run: pytest --cov --cov-report=term-missing --cov-report=xml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.xml
+
+  # Deployment: Render auto-deploys main after this workflow passes
+  # (enable "Auto-Deploy: After CI checks pass" in Render settings).
+  # Day 5: add jobs `smoke` (curl /health on deployed URL) and `dast` (OWASP ZAP baseline).
